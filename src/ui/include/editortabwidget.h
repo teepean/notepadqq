@@ -2,6 +2,7 @@
 #define EDITORTABWIDGET_H
 
 #include "EditorNS/editor.h"
+#include "tabcontentwrapper.h"
 
 #include <QTabWidget>
 #include <QWheelEvent>
@@ -36,6 +37,11 @@ public:
     QSharedPointer<Editor> editor(int index) const;
     QSharedPointer<Editor> editor(Editor *editor) const;
     QSharedPointer<Editor> currentEditor();
+
+    /**
+     * @brief Returns the TabContentWrapper at the given tab index
+     */
+    TabContentWrapper *wrapper(int index) const;
 
     /**
      * @brief tabTextFromEditor Returns the tab text of a given Editor, or an empty string if
@@ -77,6 +83,9 @@ private:
 
     // Smart pointers to the editors within this TabWidget
     QHash<Editor*, QSharedPointer<Editor>> m_editorPointers;
+
+    // Map from Editor* to its TabContentWrapper
+    QHash<Editor*, TabContentWrapper*> m_wrappers;
 
     qreal m_zoomFactor = 1;
 

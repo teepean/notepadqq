@@ -1,4 +1,5 @@
 #include "include/mainwindow.h"
+#include "include/tabcontentwrapper.h"
 
 #include "include/EditorNS/bannerfilechanged.h"
 #include "include/EditorNS/bannerfileremoved.h"
@@ -712,9 +713,78 @@ void MainWindow::setCurrentEditorLanguage(QString language)
     currentEditor()->setLanguage(language);
 }
 
-void MainWindow::on_customTabContextMenuRequested(QPoint point, EditorTabWidget * /*tabWidget*/, int /*tabIndex*/)
+void MainWindow::on_customTabContextMenuRequested(QPoint point, EditorTabWidget *tabWidget, int tabIndex)
 {
-    m_tabContextMenu->exec(point);
+    // Add dynamic CSV Mode sub-menu
+    QMenu *csvMenu = new QMenu(tr("CSV Mode"), m_tabContextMenu);
+
+    TabContentWrapper *wrapper = tabWidget->wrapper(tabIndex);
+    bool inCsvMode = wrapper && wrapper->isCsvMode();
+
+    QAction *textModeAction = csvMenu->addAction(tr("Text Mode (Default)"));
+    textModeAction->setCheckable(true);
+    textModeAction->setChecked(!inCsvMode);
+
+    csvMenu->addSeparator();
+
+    QAction *commaAction = csvMenu->addAction(tr("Comma Separated"));
+    commaAction->setCheckable(true);
+    commaAction->setChecked(inCsvMode);
+
+    QAction *tabAction = csvMenu->addAction(tr("Tab Separated"));
+    tabAction->setCheckable(true);
+
+    QAction *semicolonAction = csvMenu->addAction(tr("Semicolon Separated"));
+    semicolonAction->setCheckable(true);
+
+    QAction *pipeAction = csvMenu->addAction(tr("Pipe Separated"));
+    pipeAction->setCheckable(true);
+
+    csvMenu->addSeparator();
+
+    QAction *autoAction = csvMenu->addAction(tr("Auto-Detect"));
+
+    // Insert CSV menu before the last separator in the context menu
+    m_tabContextMenu->addSeparator();
+    m_tabContextMenu->addMenu(csvMenu);
+
+    QAction *selectedAction = m_tabContextMenu->exec(point);
+
+    // Handle CSV mode actions
+    if (wrapper) {
+        if (selectedAction == textModeAction) {
+            wrapper->switchToTextMode();
+        } else if (selectedAction == commaAction) {
+            wrapper->switchToCsvMode(',');
+        } else if (selectedAction == tabAction) {
+            wrapper->switchToCsvMode('\t');
+        } else if (selectedAction == semicolonAction) {
+            wrapper->switchToCsvMode(';');
+        } else if (selectedAction == pipeAction) {
+            wrapper->switchToCsvMode('|');
+        } else if (selectedAction == autoAction) {
+            wrapper->switchToCsvMode('\0');
+        }
+
+        // Sync the View menu checkbox
+        ui->actionCSV_Mode->blockSignals(true);
+        ui->actionCSV_Mode->setChecked(wrapper->isCsvMode());
+        ui->actionCSV_Mode->blockSignals(false);
+
+        // Update statusbar
+        auto editor = tabWidget->editor(tabIndex);
+        if (editor)
+            refreshEditorUiInfo(editor);
+    }
+
+    // Clean up the dynamic menu entries
+    m_tabContextMenu->removeAction(csvMenu->menuAction());
+    // Remove the separator we added
+    QList<QAction *> actions = m_tabContextMenu->actions();
+    if (!actions.isEmpty() && actions.last()->isSeparator()) {
+        m_tabContextMenu->removeAction(actions.last());
+    }
+    delete csvMenu;
 }
 
 bool MainWindow::updateSymbols(bool on)
@@ -817,6 +887,28 @@ void MainWindow::on_actionMath_Rendering_toggled(bool on)
     });
 
     m_settings.General.setMathRendering(on);
+}
+
+void MainWindow::on_actionCSV_Mode_toggled(bool on)
+{
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    if (!tabWidget)
+        return;
+
+    TabContentWrapper *wrapper = tabWidget->wrapper(tabWidget->currentIndex());
+    if (!wrapper)
+        return;
+
+    if (on) {
+        wrapper->switchToCsvMode('\0'); // Auto-detect delimiter
+    } else {
+        wrapper->switchToTextMode();
+    }
+
+    // Update statusbar
+    auto editor = tabWidget->currentEditor();
+    if (editor)
+        refreshEditorUiInfo(editor);
 }
 
 void MainWindow::on_actionMove_to_Other_View_triggered()
@@ -1184,6 +1276,14 @@ void MainWindow::on_currentEditorChanged(EditorTabWidget *tabWidget, int tab)
         refreshEditorUiInfo(editor);
         editor->requestDocumentInfo();
         editor->setFocus();
+
+        // Sync CSV Mode checkbox with current tab's state
+        TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+        if (wrapper) {
+            ui->actionCSV_Mode->blockSignals(true);
+            ui->actionCSV_Mode->setChecked(wrapper->isCsvMode());
+            ui->actionCSV_Mode->blockSignals(false);
+        }
     }
 }
 
@@ -1316,8 +1416,23 @@ void MainWindow::searchDockItemInteracted(const DocResult& doc, const MatchResul
 void MainWindow::refreshEditorUiInfo(QSharedPointer<Editor> editor)
 {
     // Update current language in statusbar
-    QString name = editor->getLanguage()->name;
-    m_sbFileFormatBtn->setText(name);
+    // Check if current tab is in CSV mode
+    EditorTabWidget *tabWidget = m_topEditorContainer->tabWidgetFromEditor(editor);
+    bool csvMode = false;
+    if (tabWidget) {
+        int tabIdx = tabWidget->indexOf(editor.data());
+        TabContentWrapper *wrapper = tabWidget->wrapper(tabIdx);
+        if (wrapper && wrapper->isCsvMode()) {
+            csvMode = true;
+        }
+    }
+
+    if (csvMode) {
+        m_sbFileFormatBtn->setText(tr("CSV Grid"));
+    } else {
+        QString name = editor->getLanguage()->name;
+        m_sbFileFormatBtn->setText(name);
+    }
 
     // Update MainWindow title
     QString newTitle;

@@ -206,6 +206,7 @@
     <addaction name="menuMove_Clone_Current_Document"/>
     <addaction name="actionWord_wrap"/>
     <addaction name="actionMath_Rendering"/>
+    <addaction name="actionCSV_Mode"/>
     <addaction name="actionToggle_To_Former_Tab"/>
     <addaction name="separator"/>
     <addaction name="separator"/>
@@ -1067,6 +1068,17 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+T</string>
+   </property>
+  </action>
+  <action name="actionCSV_Mode">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>C&amp;SV Grid Mode</string>
+   </property>
+   <property name="toolTip">
+    <string>Toggle CSV Grid Mode</string>
    </property>
   </action>
  </widget>

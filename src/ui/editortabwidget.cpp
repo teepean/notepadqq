@@ -1,4 +1,5 @@
 #include "include/editortabwidget.h"
+#include "include/tabcontentwrapper.h"
 
 #include "include/iconprovider.h"
 
@@ -39,6 +40,7 @@ EditorTabWidget::~EditorTabWidget()
     for (int i = this->count() - 1; i >= 0; i--) {
         QSharedPointer<Editor> edt = editor(i);
         m_editorPointers.remove(edt.data());
+        m_wrappers.remove(edt.data());
         // Remove the parent so that QObject cannot destroy the
         // object (QSharedPointer will take care of it).
         edt->setParent(nullptr);
@@ -85,7 +87,20 @@ int EditorTabWidget::indexOf(QSharedPointer<Editor> editor) const
 
 int EditorTabWidget::indexOf(QWidget *widget) const
 {
-    return QTabWidget::indexOf(widget);
+    // First try direct lookup (works for wrappers)
+    int idx = QTabWidget::indexOf(widget);
+    if (idx >= 0)
+        return idx;
+
+    // If widget is an Editor*, look up its wrapper
+    Editor *ed = dynamic_cast<Editor*>(widget);
+    if (ed) {
+        TabContentWrapper *w = m_wrappers.value(ed);
+        if (w)
+            return QTabWidget::indexOf(w);
+    }
+
+    return -1;
 }
 
 QString EditorTabWidget::tabText(Editor* editor) const
@@ -151,15 +166,25 @@ int EditorTabWidget::rawAddEditorTab(const bool setFocus, const QString &title, 
         oldText = source->tabText(sourceTabIndex);
         oldIcon = source->tabIcon(sourceTabIndex);
         oldTooltip = source->tabToolTip(sourceTabIndex);
+
+        // Remove editor from its old wrapper before creating a new one
+        TabContentWrapper *oldWrapper = source->m_wrappers.value(editor.data());
+        if (oldWrapper) {
+            oldWrapper->removeWidget(editor.data());
+        }
     }
 
     m_editorPointers.insert(editor.data(), editor);
 
-    // Calling adTab() triggers MainWindow::refreshEditorUiInfo. We want to set the tab title
+    // Wrap the editor in a TabContentWrapper (QStackedWidget)
+    TabContentWrapper *wrapper = new TabContentWrapper(editor.data(), this);
+    m_wrappers.insert(editor.data(), wrapper);
+
+    // Calling addTab() triggers MainWindow::refreshEditorUiInfo. We want to set the tab title
     // before that happens so it can be displayed properly.
     const QString& tabTitle = create ? title : oldText;
     editor->setTabName(tabTitle);
-    int index = addTab(editor.data(), tabTitle);
+    int index = addTab(wrapper, tabTitle);
 
     if (!create) {
         source->disconnectEditorSignals(editor.data());
@@ -210,8 +235,19 @@ int EditorTabWidget::findOpenEditorByUrl(const QUrl &filename)
 
 QSharedPointer<Editor> EditorTabWidget::editor(int index) const
 {
+    // Widget at index is now a TabContentWrapper
+    TabContentWrapper *w = dynamic_cast<TabContentWrapper *>(this->widget(index));
+    if (w)
+        return m_editorPointers.value(w->editor());
+
+    // Fallback: try direct Editor* cast (shouldn't happen normally)
     Editor *ed = dynamic_cast<Editor *>(this->widget(index));
     return m_editorPointers.value(ed);
+}
+
+TabContentWrapper *EditorTabWidget::wrapper(int index) const
+{
+    return dynamic_cast<TabContentWrapper *>(this->widget(index));
 }
 
 QSharedPointer<Editor> EditorTabWidget::editor(Editor *editor) const
@@ -223,13 +259,16 @@ void EditorTabWidget::tabRemoved(int)
 {
     // FIXME Find a more efficient way to get the deleted editor
 
+    // Collect all current tab widgets (these are wrappers now)
     QList<QWidget*> tabs;
     for (int i = 0; i < this->count(); i++) {
         tabs.append(widget(i));
     }
 
     for (QSharedPointer<Editor> editor : m_editorPointers) {
-        if (!tabs.contains(editor.data())) {
+        // Check if this editor's wrapper is still present
+        TabContentWrapper *w = m_wrappers.value(editor.data());
+        if (!w || !tabs.contains(w)) {
             // Editor is the one that has been removed!
             if (editor.data() != nullptr) {
                 // Set no parent, so that QObject won't delete
@@ -238,6 +277,7 @@ void EditorTabWidget::tabRemoved(int)
                 disconnectEditorSignals(editor.data());
             }
 
+            m_wrappers.remove(editor.data());
             m_editorPointers.remove(editor.data());
             break;
         }

@@ -66,6 +66,11 @@ SOURCES += main.cpp\
     mainwindow.cpp \
     topeditorcontainer.cpp \
     editortabwidget.cpp \
+    tabcontentwrapper.cpp \
+    Csv/csvparser.cpp \
+    Csv/csvmodel.cpp \
+    Csv/lazyloadcsvmodel.cpp \
+    Csv/csvgrid.cpp \
     docengine.cpp \
     frmabout.cpp \
     notepadqq.cpp \
@@ -114,6 +119,11 @@ SOURCES += main.cpp\
 HEADERS  += include/mainwindow.h \
     include/topeditorcontainer.h \
     include/editortabwidget.h \
+    include/tabcontentwrapper.h \
+    include/Csv/csvparser.h \
+    include/Csv/csvmodel.h \
+    include/Csv/lazyloadcsvmodel.h \
+    include/Csv/csvgrid.h \
     include/docengine.h \
     include/frmabout.h \
     include/notepadqq.h \

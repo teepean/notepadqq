@@ -198,6 +198,7 @@ private slots:
     void on_actionShow_Menubar_toggled(bool arg1);
     void on_actionShow_Toolbar_toggled(bool arg1);
     void on_actionMath_Rendering_toggled(bool on);
+    void on_actionCSV_Mode_toggled(bool on);
     void on_actionToggle_To_Former_Tab_triggered();
 
 private:
