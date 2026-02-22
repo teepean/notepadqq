@@ -76,9 +76,10 @@ namespace Extensions {
 
         QObject *Stub::objectUnmanagedPtr()
         {
-            if (m_pointerType == PointerType::WEAK_POINTER)
-                return m_weakPointer.data();
-            else if (m_pointerType == PointerType::SHARED_POINTER)
+            if (m_pointerType == PointerType::WEAK_POINTER) {
+                QSharedPointer<QObject> strongRef = m_weakPointer.toStrongRef();
+                return strongRef ? strongRef.data() : nullptr;
+            } else if (m_pointerType == PointerType::SHARED_POINTER)
                 return m_sharedPointer.data();
             else if (m_pointerType == PointerType::UNMANAGED_POINTER)
                 return m_unmanagedPointer;

@@ -97,7 +97,7 @@ void frmSearchReplace::setSearchText(QString string)
       Workaround is to disable auto complete until the search box was manually edited
       which prevents the bug. Auto complete is enabled again in on_searchStringEdited.
     */
-    ui->cmbSearch->setAutoCompletion(false);
+    ui->cmbSearch->setCompleter(nullptr);
 }
 
 void frmSearchReplace::setCurrentTab(Tabs tab)
@@ -384,7 +384,7 @@ void frmSearchReplace::on_searchStringEdited(const QString &/*text*/)
     }
 
     // Workaround. See comment in setSearchText().
-    ui->cmbSearch->setAutoCompletion(true);
+    ui->cmbSearch->setCompleter(new QCompleter(ui->cmbSearch->model(), ui->cmbSearch));
     ui->cmbSearch->completer()->setCaseSensitivity(Qt::CaseSensitive);
 }
 

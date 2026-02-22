@@ -367,7 +367,7 @@ void MainWindow::loadToolBar()
         toolbarItems = getDefaultToolBarString();
 
     auto actions = getActions();
-    auto parts = toolbarItems.split('|', QString::SkipEmptyParts);
+    auto parts = toolbarItems.split('|', Qt::SkipEmptyParts);
 
     for (const auto& part : parts) {
         if(part == "Separator") {
@@ -1783,7 +1783,7 @@ void MainWindow::on_editorMouseWheel(EditorTabWidget *tabWidget, int tab, QWheel
 {
     if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
         qreal curZoom = tabWidget->editor(tab)->zoomFactor();
-        qreal diff = ev->delta() / 120;
+        qreal diff = ev->angleDelta().y() / 120.0;
         diff /= 10;
 
         // Increment/Decrement zoom factor by 0.1 at each step.

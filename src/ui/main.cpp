@@ -37,9 +37,6 @@ int main(int argc, char *argv[])
     printerrln("WARNING: Notepadqq is running in DEBUG mode.");
 #endif
 
-    // Initialize random number generator
-    qsrand(QDateTime::currentDateTimeUtc().time().msec() + qrand());
-
 #if QT_VERSION > QT_VERSION_CHECK(5, 6, 0)
     SingleApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     SingleApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
