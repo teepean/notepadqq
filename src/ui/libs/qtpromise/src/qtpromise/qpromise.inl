@@ -3,6 +3,7 @@
 
 // Qt
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QSharedPointer>
 #include <QTimer>
 
@@ -137,10 +138,18 @@ inline QPromise<T> QPromiseBase<T>::delay(int msec) const
 template <typename T>
 inline QPromise<T> QPromiseBase<T>::wait() const
 {
-    // @TODO wait timeout + global timeout
-    while (m_d->isPending()) {
-        QCoreApplication::processEvents(QEventLoop::AllEvents);
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    // Use a proper QEventLoop instead of processEvents busy-wait.
+    // Qt 6 QWebEngine runs V8 out-of-process; spinning processEvents()
+    // corrupts Chromium IPC state. QEventLoop::exec() is a safe nested
+    // event loop that Qt handles correctly.
+    if (m_d->isPending()) {
+        QEventLoop loop;
+        this->finally([&loop]() {
+            // QTimer::singleShot ensures we quit the loop from the next
+            // event loop iteration, not from within promise resolution.
+            QTimer::singleShot(0, &loop, &QEventLoop::quit);
+        });
+        loop.exec();
     }
 
     return *this;

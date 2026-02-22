@@ -82,11 +82,7 @@ void CsvGrid::autoResizeColumns()
 
     for (int i = 0; i < model()->columnCount(); i++) {
         QString headerText = model()->headerData(i, Qt::Horizontal).toString();
-#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
         int headerWidth = fm.horizontalAdvance(headerText) + 30;
-#else
-        int headerWidth = fm.width(headerText) + 30;
-#endif
 
         resizeColumnToContents(i);
 

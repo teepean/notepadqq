@@ -77,7 +77,7 @@ QSize QSearchDockTitleButton::sizeHint() const
     return QSize(size, size);
 }
 
-void QSearchDockTitleButton::enterEvent(QEvent *event)
+void QSearchDockTitleButton::enterEvent(QEnterEvent *event)
 {
     if (isEnabled()) update();
     QAbstractButton::enterEvent(event);
@@ -94,7 +94,7 @@ void QSearchDockTitleButton::paintEvent(QPaintEvent* /*evt*/)
     QPainter p(this);
 
     QStyleOptionToolButton opt;
-    opt.init(this);
+    opt.initFrom(this);
     opt.state |= QStyle::State_AutoRaise;
 
     if (style()->styleHint(QStyle::SH_DockWidget_ButtonsHaveFrame, 0, this))
@@ -686,7 +686,9 @@ AdvancedSearchDock::AdvancedSearchDock(MainWindow* mainWindow)
 
     // Connect right-hand side buttons
     connect(m_btnClose, &QAbstractButton::clicked, dockWidget, &QDockWidget::close);
-    connect(m_btnDockUndock, SIGNAL(clicked()), dockWidget, SLOT(_q_toggleTopLevel()));
+    connect(m_btnDockUndock, &QAbstractButton::clicked, dockWidget, [dockWidget]() {
+        dockWidget->setFloating(!dockWidget->isFloating());
+    });
 
     // Search panel connections
     connect(m_cmbSearchTerm->lineEdit(), &QLineEdit::textChanged, this, &AdvancedSearchDock::onUserInput);

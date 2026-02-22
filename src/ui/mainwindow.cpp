@@ -23,6 +23,7 @@
 #include "include/nqqrun.h"
 #include "ui_mainwindow.h"
 
+#include <QActionGroup>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QFileDialog>
@@ -42,7 +43,6 @@
 #include <QtPrintSupport/QPrintPreviewDialog>
 #include <QtPromise>
 
-using namespace QtPromise;
 
 QList<MainWindow*> MainWindow::m_instances = QList<MainWindow*>();
 
@@ -70,11 +70,6 @@ MainWindow::MainWindow(const QString &workingDirectory, const QStringList &argum
 
     loadIcons();
 
-    // Printing a WebEnginePage not supported prior to 5.8
-#if QT_VERSION < QT_VERSION_CHECK(5,8,0)
-    ui->actionPrint->setEnabled(false);
-    ui->actionPrint->setVisible(false);
-#endif
 
     // Context menu initialization
     m_tabContextMenu = new QMenu(this);
@@ -1426,14 +1421,12 @@ void MainWindow::refreshEditorUiInfo(QSharedPointer<Editor> editor)
             csvMode = true;
         }
     }
-
     if (csvMode) {
         m_sbFileFormatBtn->setText(tr("CSV Grid"));
     } else {
         QString name = editor->getLanguage()->name;
         m_sbFileFormatBtn->setText(name);
     }
-
     // Update MainWindow title
     QString newTitle;
     if (editor->filePath().isEmpty()) {
@@ -1463,9 +1456,17 @@ void MainWindow::refreshEditorUiInfo(QSharedPointer<Editor> editor)
                                            QUrl::StripTrailingSlash
                                            );
 
+        // Avoid blocking isClean() call when in CSV mode, as the editor's
+        // QWebEngineView is hidden and Qt 6 crashes on synchronous JS calls
+        // to hidden web views.
+        QString cleanIndicator;
+        if (!csvMode) {
+            cleanIndicator = editor->isClean() ? "" : "*";
+        }
+
         newTitle = QString("%1%2 (%3) - %4")
                        .arg(Notepadqq::fileNameFromUrl(editor->filePath()))
-                       .arg(editor->isClean() ? "" : "*")
+                       .arg(cleanIndicator)
                        .arg(path)
                        .arg(QApplication::applicationName());
     }
@@ -1473,14 +1474,15 @@ void MainWindow::refreshEditorUiInfo(QSharedPointer<Editor> editor)
     if (newTitle != windowTitle()) {
         setWindowTitle(newTitle.isNull() ? QApplication::applicationName() : newTitle);
     }
-
-    // Enable / disable menus
-    editor->isCleanP().then([=](bool isClean){
-        QUrl fileName = editor->filePath();
-        ui->actionRename->setEnabled(!fileName.isEmpty());
-        ui->actionMove_to_New_Window->setEnabled(isClean);
-        ui->actionOpen_in_New_Window->setEnabled(isClean);
-    });
+    // Enable / disable menus (skip async QWebEngine call in CSV mode)
+    if (!csvMode) {
+        editor->isCleanP().then([=](bool isClean){
+            QUrl fileName = editor->filePath();
+            ui->actionRename->setEnabled(!fileName.isEmpty());
+            ui->actionMove_to_New_Window->setEnabled(isClean);
+            ui->actionOpen_in_New_Window->setEnabled(isClean);
+        });
+    }
 
     bool allowReloading = !editor->filePath().isEmpty();
     ui->actionReload_File_Interpreted_As->setEnabled(allowReloading);
@@ -1508,7 +1510,6 @@ void MainWindow::refreshEditorUiInfo(QSharedPointer<Editor> editor)
         encoding = QString::fromUtf8(editor->codec()->name());
     }
     m_sbTextFormatBtn->setText(encoding);
-
     // Indentation
     if (editor->isUsingCustomIndentationMode()) {
         ui->actionIndentation_Custom->setChecked(true);
@@ -2426,7 +2427,7 @@ void MainWindow::on_actionLaunch_in_Chrome_triggered()
     }
 }
 */
-QPromise<QStringList> MainWindow::currentWordOrSelections()
+QtPromise::QPromise<QStringList> MainWindow::currentWordOrSelections()
 {
     auto editor = currentEditor();
     return editor->selectedTexts().then([=](QStringList selection){
@@ -2435,12 +2436,12 @@ QPromise<QStringList> MainWindow::currentWordOrSelections()
                 return QStringList(word);
             });
         } else {
-            return QPromise<QStringList>::resolve(selection);
+            return QtPromise::QPromise<QStringList>::resolve(selection);
         }
     });
 }
 
-QPromise<QString> MainWindow::currentWordOrSelection()
+QtPromise::QPromise<QString> MainWindow::currentWordOrSelection()
 {
     return currentWordOrSelections().then([=](QStringList terms){
         if (terms.isEmpty()) {

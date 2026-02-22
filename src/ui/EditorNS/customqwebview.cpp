@@ -17,7 +17,7 @@ namespace EditorNS
 
         if (ev->modifiers() & Qt::ShiftModifier) {
             QWheelEvent hScroll(ev->position(), ev->globalPosition(), ev->pixelDelta(), ev->angleDelta(),
-                                ev->buttons(), ev->modifiers(), ev->phase(), ev->source());
+                                ev->buttons(), ev->modifiers(), ev->phase(), ev->inverted(), ev->source());
             QWebEngineView::wheelEvent(&hScroll);
         } else {
             QWebEngineView::wheelEvent(ev);

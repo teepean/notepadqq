@@ -37,19 +37,13 @@ int main(int argc, char *argv[])
     printerrln("WARNING: Notepadqq is running in DEBUG mode.");
 #endif
 
-#if QT_VERSION > QT_VERSION_CHECK(5, 6, 0)
-    SingleApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    SingleApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-#endif
     SingleApplication a(argc, argv);
 
     QCoreApplication::setOrganizationName("Notepadqq");
     QCoreApplication::setApplicationName("Notepadqq");
     QCoreApplication::setApplicationVersion(Notepadqq::version);
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 7, 0)
     QGuiApplication::setDesktopFileName("notepadqq");
-#endif
 
     QSettings::setDefaultFormat(QSettings::IniFormat);
 

@@ -3,10 +3,12 @@
 #include "include/notepadqq.h"
 #include "include/nqqsettings.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QEventLoop>
 #include <QMessageBox>
-#include <QRegExp>
+#include <QPainter>
+#include <QPdfDocument>
 #include <QRegularExpression>
 #include <QTimer>
 #include <QUrlQuery>
@@ -55,7 +57,7 @@ namespace EditorNS
         m_webView->page()->setWebChannel(channel);
         channel->registerObject(QStringLiteral("cpp_ui_driver"), m_jsToCppProxy);
 
-        m_webView->page()->setBackgroundColor(qApp->palette().color(QPalette::Background));
+        m_webView->page()->setBackgroundColor(qApp->palette().color(QPalette::Window));
         m_webView->setUrl(url);
 
         // To load the page in the background (http://stackoverflow.com/a/10520029):
@@ -134,15 +136,13 @@ namespace EditorNS
             emit messageReceived(msg, data);
 
             if (msg.startsWith("[ASYNC_REPLY]")) {
-                QRegExp rgx("\\[ID=(\\d+)\\]$");
+                QRegularExpression rgx("\\[ID=(\\d+)\\]$");
+                QRegularExpressionMatch match = rgx.match(msg);
 
-                if(rgx.indexIn(msg) == -1)
+                if (!match.hasMatch())
                     return;
 
-                if (rgx.captureCount() != 1)
-                    return;
-
-                unsigned int id = rgx.capturedTexts()[1].toInt();
+                unsigned int id = match.captured(1).toInt();
 
                 // Look into the list of callbacks
                 for (auto it = this->asyncReplies.begin(); it != this->asyncReplies.end(); ++it) {
@@ -222,7 +222,7 @@ namespace EditorNS
         m_tabName = name;
     }
 
-    QPromise<bool> Editor::isCleanP()
+    QtPromise::QPromise<bool> Editor::isCleanP()
     {
         return asyncSendMessageWithResultP("C_FUN_IS_CLEAN", QVariant(0))
                 .then([](QVariant v){ return v.toBool(); });
@@ -234,19 +234,19 @@ namespace EditorNS
         return asyncSendMessageWithResult("C_FUN_IS_CLEAN", data).get().toBool();
     }
 
-    QPromise<void> Editor::markClean()
+    QtPromise::QPromise<void> Editor::markClean()
     {
         return asyncSendMessageWithResultP("C_CMD_MARK_CLEAN").then([](){})
                 .wait(); // FIXME Remove
     }
 
-    QPromise<void> Editor::markDirty()
+    QtPromise::QPromise<void> Editor::markDirty()
     {
         return asyncSendMessageWithResultP("C_CMD_MARK_DIRTY").then([](){})
                 .wait(); // FIXME Remove
     }
 
-    QPromise<int> Editor::getHistoryGeneration()
+    QtPromise::QPromise<int> Editor::getHistoryGeneration()
     {
         return asyncSendMessageWithResultP("C_FUN_GET_HISTORY_GENERATION")
                 .then([](QVariant v){return v.toInt();});
@@ -299,7 +299,7 @@ namespace EditorNS
         setLanguageFromFilePath(filePath().toString());
     }
 
-    QPromise<void> Editor::setIndentationMode(const Language* lang)
+    QtPromise::QPromise<void> Editor::setIndentationMode(const Language* lang)
     {
         const auto& s = NqqSettings::getInstance().Languages;
         const bool useDefaults = s.getUseDefaultSettings(lang->id);
@@ -308,7 +308,7 @@ namespace EditorNS
         return setIndentationMode(!s.getIndentWithSpaces(langId), s.getTabSize(langId));
     }
 
-    QPromise<void> Editor::setIndentationMode(const bool useTabs, const int size)
+    QtPromise::QPromise<void> Editor::setIndentationMode(const bool useTabs, const int size)
     {
         return asyncSendMessageWithResultP("C_CMD_SET_INDENTATION_MODE",
                                            QVariantMap{{"useTabs", useTabs}, {"size", size}}).then([](){});
@@ -323,7 +323,7 @@ namespace EditorNS
         return out;
     }
 
-    QPromise<Editor::IndentationMode> Editor::indentationModeP()
+    QtPromise::QPromise<Editor::IndentationMode> Editor::indentationModeP()
     {
         return asyncSendMessageWithResultP("C_FUN_GET_INDENTATION_MODE").then([](QVariant result){
             QVariantMap indent = result.toMap();
@@ -362,7 +362,7 @@ namespace EditorNS
         asyncSendMessageWithResultP("C_CMD_SET_SMART_INDENT", enabled);
     }
 
-    QPromise<void> Editor::setValue(const QString &value)
+    QtPromise::QPromise<void> Editor::setValue(const QString &value)
     {
         auto lang = LanguageService::getInstance().lookupByContent(value);
         if (lang != nullptr) {
@@ -404,13 +404,13 @@ namespace EditorNS
 
     unsigned int messageIdentifier = 0;
 
-    QPromise<QVariant> Editor::asyncSendMessageWithResultP(const QString msg, const QVariant data)
+    QtPromise::QPromise<QVariant> Editor::asyncSendMessageWithResultP(const QString msg, const QVariant data)
     {
         unsigned int currentMsgIdentifier = ++messageIdentifier;
 
-        QPromise<QVariant> resultPromise = QPromise<QVariant>([&](
-                                                              const QPromiseResolve<QVariant>& resolve,
-                                                              const QPromiseReject<QVariant>& /* reject */) {
+        QtPromise::QPromise<QVariant> resultPromise = QtPromise::QPromise<QVariant>([&](
+                                                              const QtPromise::QPromiseResolve<QVariant>& resolve,
+                                                              const QtPromise::QPromiseReject<QVariant>& /* reject */) {
 
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = QObject::connect(this, &Editor::asyncReplyReceived, this, [=](unsigned int id, QString, QVariant data){
@@ -448,7 +448,7 @@ namespace EditorNS
         return resultPromise;
     }
 
-    QPromise<QVariant> Editor::asyncSendMessageWithResultP(const QString msg)
+    QtPromise::QPromise<QVariant> Editor::asyncSendMessageWithResultP(const QString msg)
     {
         return this->asyncSendMessageWithResultP(msg, 0);
     }
@@ -472,9 +472,21 @@ namespace EditorNS
 
         std::shared_future<QVariant> fut = resultPromise->get_future().share();
 
-        while (fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-            QCoreApplication::processEvents(QEventLoop::AllEvents);
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        // Use a proper QEventLoop instead of processEvents busy-wait.
+        // Qt 6 QWebEngine runs V8 in a separate renderer process; the old
+        // processEvents() spin corrupts Chromium IPC state and crashes V8.
+        // QEventLoop::exec() is a designed nested-loop mechanism that Qt
+        // handles safely — the same pattern waitAsyncLoad() already uses.
+        if (fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            QEventLoop loop;
+            auto conn = QObject::connect(this, &Editor::asyncReplyReceived, &loop,
+                [&loop, currentMsgIdentifier](unsigned int id, QString, QVariant) {
+                    if (id == currentMsgIdentifier) {
+                        loop.quit();
+                    }
+                });
+            loop.exec();
+            QObject::disconnect(conn);
         }
 
         return fut;
@@ -483,6 +495,11 @@ namespace EditorNS
     std::shared_future<QVariant> Editor::asyncSendMessageWithResult(const QString msg, std::function<void(QVariant)> callback)
     {
         return this->asyncSendMessageWithResult(msg, 0, callback);
+    }
+
+    void Editor::setWebPageLifecycleActive()
+    {
+        m_webView->page()->setLifecycleState(QWebEnginePage::LifecycleState::Active);
     }
 
     void Editor::setZoomFactor(const qreal &factor)
@@ -558,7 +575,7 @@ namespace EditorNS
         asyncSendMessageWithResultP("C_CMD_ENABLE_MATH", enabled);
     }
 
-    QPromise<QPair<int, int>> Editor::cursorPositionP()
+    QtPromise::QPromise<QPair<int, int>> Editor::cursorPositionP()
     {
         return asyncSendMessageWithResultP("C_FUN_GET_CURSOR")
                .then([](QVariant v){
@@ -713,7 +730,7 @@ namespace EditorNS
         return out;
     }
 
-    QPromise<QStringList> Editor::selectedTexts()
+    QtPromise::QPromise<QStringList> Editor::selectedTexts()
     {
         return asyncSendMessageWithResultP("C_FUN_GET_SELECTIONS_TEXT")
                 .then([](QVariant text){ return text.toStringList(); });
@@ -729,7 +746,7 @@ namespace EditorNS
         asyncSendMessageWithResultP("C_CMD_SET_TABS_VISIBLE", visible);
     }
 
-    QPromise<std::pair<Editor::IndentationMode, bool>> Editor::detectDocumentIndentation()
+    QtPromise::QPromise<std::pair<Editor::IndentationMode, bool>> Editor::detectDocumentIndentation()
     {
         return asyncSendMessageWithResultP("C_FUN_DETECT_INDENTATION_MODE").then([](QVariant result){
             QVariantMap indent = result.toMap();
@@ -753,7 +770,6 @@ namespace EditorNS
         // 2. Set WebView's bg-color to white to prevent visual artifacts when printing less than one page.
         // 3. Set C_CMD_DISPLAY_PRINT_STYLE to hide UI elements like the gutter.
 
-#if QT_VERSION >= QT_VERSION_CHECK(5,8,0)
         QColor prevBackgroundColor = m_webView->page()->backgroundColor();
         QString prevStylesheet = m_webView->styleSheet();
 
@@ -762,28 +778,47 @@ namespace EditorNS
         m_webView->page()->setBackgroundColor(Qt::transparent);
         m_webView->setStyleSheet("background-color: white");
         sendMessage("C_CMD_DISPLAY_PRINT_STYLE");
-        m_webView->page()->print(printer.get(), [=](bool /*success*/) {
+        m_webView->page()->printToPdf([=](const QByteArray &pdfData) {
             // Note: it is important to capture "printer" in order to keep the shared_ptr alive.
+            if (!pdfData.isEmpty()) {
+                QBuffer buffer;
+                buffer.setData(pdfData);
+                buffer.open(QIODevice::ReadOnly);
+                QPdfDocument pdfDoc;
+                pdfDoc.load(&buffer);
+
+                if (pdfDoc.status() == QPdfDocument::Status::Ready) {
+                    QPainter painter(printer.get());
+                    QRect pageRect = painter.viewport();
+
+                    for (int i = 0; i < pdfDoc.pageCount(); ++i) {
+                        if (i > 0) printer->newPage();
+                        QSizeF pageSize = pdfDoc.pagePointSize(i);
+                        QImage image = pdfDoc.render(i, (pageSize * (printer->resolution() / 72.0)).toSize());
+                        painter.drawImage(pageRect, image);
+                    }
+                    painter.end();
+                }
+            }
+
             sendMessage("C_CMD_DISPLAY_NORMAL_STYLE");
             m_webView->setStyleSheet(prevStylesheet);
             m_webView->page()->setBackgroundColor(prevBackgroundColor);
             setTheme(themeFromName(NqqSettings::getInstance().Appearance.getColorScheme()));
             this->setLineWrap(NqqSettings::getInstance().General.getWordWrap());
         });
-#endif
     }
 
-    QPromise<QByteArray> Editor::printToPdf(const QPageLayout& pageLayout)
+    QtPromise::QPromise<QByteArray> Editor::printToPdf(const QPageLayout& pageLayout)
     {
         // 1. Set theme to default because dark themes would force the printer to color the entire
         //    document in the background color. Default theme has white background.
         // 2. Set WebView's bg-color to white to prevent visual artifacts when printing less than one page.
         // 3. Set C_CMD_DISPLAY_PRINT_STYLE to hide UI elements like the gutter.
 
-        return QPromise<QByteArray>(
-            [&](const QPromiseResolve<QByteArray>& resolve, const QPromiseReject<QByteArray>& reject) {
+        return QtPromise::QPromise<QByteArray>(
+            [&](const QtPromise::QPromiseResolve<QByteArray>& resolve, const QtPromise::QPromiseReject<QByteArray>& reject) {
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
                 QColor prevBackgroundColor = m_webView->page()->backgroundColor();
                 QString prevStylesheet = m_webView->styleSheet();
 
@@ -810,20 +845,16 @@ namespace EditorNS
                         }
                     },
                     pageLayout);
-
-#else
-                reject(QByteArray());
-#endif
             });
     }
 
-    QPromise<QString> Editor::getCurrentWord()
+    QtPromise::QPromise<QString> Editor::getCurrentWord()
     {
         return asyncSendMessageWithResultP("C_FUN_GET_CURRENT_WORD")
                 .then([](QVariant v){ return v.toString(); });
     }
 
-    QPromise<int> Editor::lineCount()
+    QtPromise::QPromise<int> Editor::lineCount()
     {
         return asyncSendMessageWithResultP("C_FUN_GET_LINE_COUNT")
                 .then([](QVariant v){ return v.toInt(); });

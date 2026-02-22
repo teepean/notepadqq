@@ -25,18 +25,18 @@ public:
 
     QPromiseBase(const QPromiseBase<T>& other): m_d(other.m_d) {}
     QPromiseBase(const QPromise<T>& other): m_d(other.m_d) {}
-    QPromiseBase(QPromiseBase<T>&& other) Q_DECL_NOEXCEPT { swap(other); }
+    QPromiseBase(QPromiseBase<T>&& other) noexcept { swap(other); }
 
     virtual ~QPromiseBase() { }
 
     QPromiseBase<T>& operator=(const QPromiseBase<T>& other) { m_d = other.m_d; return *this;}
-    QPromiseBase<T>& operator=(QPromiseBase<T>&& other) Q_DECL_NOEXCEPT
+    QPromiseBase<T>& operator=(QPromiseBase<T>&& other) noexcept
     { QPromiseBase<T>(std::move(other)).swap(*this); return *this; }
 
     bool operator==(const QPromiseBase<T>& other) const { return (m_d == other.m_d); }
     bool operator!=(const QPromiseBase<T>& other) const { return (m_d != other.m_d); }
 
-    void swap(QPromiseBase<T>& other) Q_DECL_NOEXCEPT { qSwap(m_d, other.m_d); }
+    void swap(QPromiseBase<T>& other) noexcept { qSwap(m_d, other.m_d); }
 
     bool isFulfilled() const { return m_d->isFulfilled(); }
     bool isRejected() const { return m_d->isRejected(); }

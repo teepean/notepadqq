@@ -5,6 +5,7 @@
 #include "include/nqqsettings.h"
 #include "ui_frmsearchreplace.h"
 
+#include <QActionGroup>
 #include <QCompleter>
 #include <QFileDialog>
 #include <QLineEdit>

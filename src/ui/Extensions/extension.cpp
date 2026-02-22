@@ -14,7 +14,7 @@ namespace Extensions {
 
     Extension::Extension(QString path, QString serverSocketPath) : QObject(0)
     {
-        m_extensionId = path + "-" + QTime::currentTime().msec() + "-" + QString::number(QRandomGenerator::global()->generate());
+        m_extensionId = path + "-" + QString::number(QTime::currentTime().msec()) + "-" + QString::number(QRandomGenerator::global()->generate());
 
         QJsonObject manifest = getManifest(path);
 
@@ -43,7 +43,7 @@ namespace Extensions {
 
                 QString runtimePath = Notepadqq::nodejsPath();
 
-                connect(process, SIGNAL(error(QProcess::ProcessError)), this, SLOT(on_processError(QProcess::ProcessError)));
+                connect(process, &QProcess::errorOccurred, this, &Extension::on_processError);
 
                 process->start(runtimePath, args);
 

@@ -1,6 +1,7 @@
 #include "include/Csv/csvmodel.h"
 #include "include/Csv/csvparser.h"
 #include <QFile>
+#include <QStringConverter>
 #include <QTextStream>
 #include <QDebug>
 #include <QColor>
@@ -408,7 +409,7 @@ bool CsvModel::saveToFile(const QString &path, char delimiter, LineEnding lineEn
     }
 
     QTextStream stream(&file);
-    stream.setCodec("UTF-8");
+    stream.setEncoding(QStringConverter::Utf8);
     stream << content;
 
     file.close();

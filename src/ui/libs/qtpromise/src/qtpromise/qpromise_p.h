@@ -521,7 +521,7 @@ public:
         return m_value;
     }
 
-    void notify(const QVector<Handler>& handlers) Q_DECL_OVERRIDE
+    void notify(const QVector<Handler>& handlers) override
     {
         PromiseValue<T> value(m_value);
         Q_ASSERT(!value.isNull());
@@ -550,7 +550,7 @@ public:
     }
 
 protected:
-    void notify(const QVector<Handler>& handlers) Q_DECL_OVERRIDE
+    void notify(const QVector<Handler>& handlers) override
     {
         for (const auto& handler: handlers) {
             qtpromise_defer(handler.second, handler.first);

@@ -3,8 +3,8 @@
 ######################################################################
 
 QT += testlib
-QT += core gui svg widgets printsupport network webenginewidgets webchannel websockets
-CONFIG += c++11
+QT += core gui svg widgets printsupport network webenginewidgets webchannel websockets core5compat
+CONFIG += c++17
 TEMPLATE = app
 TARGET = ui-tests
 INCLUDEPATH += ../ui/

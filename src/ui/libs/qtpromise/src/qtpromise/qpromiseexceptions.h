@@ -12,8 +12,8 @@ namespace QtPromise {
 class QPromiseCanceledException : public QException
 {
 public:
-    void raise() const Q_DECL_OVERRIDE { throw *this; }
-    QPromiseCanceledException* clone() const Q_DECL_OVERRIDE
+    void raise() const override { throw *this; }
+    QPromiseCanceledException* clone() const override
     {
         return new QPromiseCanceledException(*this);
     }
@@ -22,8 +22,8 @@ public:
 class QPromiseContextException : public QException
 {
 public:
-    void raise() const Q_DECL_OVERRIDE { throw *this; }
-    QPromiseContextException* clone() const Q_DECL_OVERRIDE
+    void raise() const override { throw *this; }
+    QPromiseContextException* clone() const override
     {
         return new QPromiseContextException(*this);
     }
@@ -32,8 +32,8 @@ public:
 class QPromiseTimeoutException : public QException
 {
 public:
-    void raise() const Q_DECL_OVERRIDE { throw *this; }
-    QPromiseTimeoutException* clone() const Q_DECL_OVERRIDE
+    void raise() const override { throw *this; }
+    QPromiseTimeoutException* clone() const override
     {
         return new QPromiseTimeoutException(*this);
     }
@@ -42,8 +42,8 @@ public:
 class QPromiseUndefinedException : public QException
 {
 public:
-    void raise() const Q_DECL_OVERRIDE { throw *this; }
-    QPromiseUndefinedException* clone() const Q_DECL_OVERRIDE
+    void raise() const override { throw *this; }
+    QPromiseUndefinedException* clone() const override
     {
         return new QPromiseUndefinedException(*this);
     }

@@ -18,8 +18,8 @@ Q_SIGNALS:
 
 protected:
     int m_connections = 0;
-    void connectNotify(const QMetaMethod&) Q_DECL_OVERRIDE { ++m_connections; }
-    void disconnectNotify(const QMetaMethod&) Q_DECL_OVERRIDE { --m_connections; }
+    void connectNotify(const QMetaMethod&) override { ++m_connections; }
+    void disconnectNotify(const QMetaMethod&) override { --m_connections; }
 };
 
 #endif // ifndef QTPROMISE_TESTS_AUTO_SHARED_SENDER_H

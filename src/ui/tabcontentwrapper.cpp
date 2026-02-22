@@ -7,6 +7,7 @@
 
 #include <QFileInfo>
 #include <QDebug>
+#include <QWebEnginePage>
 
 TabContentWrapper::TabContentWrapper(EditorNS::Editor *editor, QWidget *parent)
     : QStackedWidget(parent)
@@ -62,7 +63,21 @@ void TabContentWrapper::switchToCsvMode(char delimiter)
         m_csvGrid->setCsvModel(m_lazyModel);
     } else {
         // For small files or unsaved buffers, use CsvModel from editor content
-        QString content = m_editor->value();
+        // Read directly from file if possible to avoid blocking QWebEngine call
+        // which causes V8 crashes in Qt 6's event processing.
+        QString content;
+        QUrl fileUrl2 = m_editor->filePath();
+        if (fileUrl2.isLocalFile() && !fileUrl2.isEmpty()) {
+            QFile f(fileUrl2.toLocalFile());
+            if (f.open(QIODevice::ReadOnly)) {
+                content = QString::fromUtf8(f.readAll());
+                f.close();
+            } else {
+                content = m_editor->value();
+            }
+        } else {
+            content = m_editor->value();
+        }
 
         // Auto-detect delimiter if not specified
         if (delimiter == '\0') {
@@ -77,6 +92,10 @@ void TabContentWrapper::switchToCsvMode(char delimiter)
 
     m_currentMode = CsvMode;
     setCurrentIndex(1);
+
+    // Prevent Qt 6 from freezing the hidden QWebEngineView's V8 engine,
+    // which crashes if there is pending JavaScript work.
+    m_editor->setWebPageLifecycleActive();
 
     emit modeChanged(CsvMode);
 }

@@ -167,17 +167,16 @@ namespace Extensions {
                 QByteArray methodTypeName = methodTypes.at(i);
                 //QByteArray argTypeName = arg.typeName();
 
-                QVariant::Type methodType = QVariant::nameToType(methodTypeName);
-                //QVariant::Type argType = arg.type();
+                int methodType = QMetaType::fromName(methodTypeName).id();
 
                 QVariant copy = QVariant(arg);
 
                 // If the types are not the same, attempt a conversion. If it
                 // fails, we cannot proceed.
 
-                if (copy.type() != methodType) {
-                    if (copy.canConvert(methodType)) {
-                        if (!copy.convert(methodType)) {
+                if (copy.metaType().id() != methodType) {
+                    if (copy.canConvert(QMetaType(methodType))) {
+                        if (!copy.convert(QMetaType(methodType))) {
                             /*qWarning() << "Cannot convert" << argTypeName
                                        << "to" << methodTypeName;*/
                             error = ErrorCode::INVALID_ARGUMENT_TYPE;
@@ -203,7 +202,7 @@ namespace Extensions {
                 // the QVariant.
 
                 QGenericArgument genericArgument(
-                    QMetaType::typeName(argument.userType()),
+                    argument.metaType().name(),
                     const_cast<void*>(argument.constData())
                 );
 
@@ -212,8 +211,7 @@ namespace Extensions {
 
             QVariant returnValue;
             if (QString(metaMethod.typeName()) != "void") {
-                returnValue = QVariant(QMetaType::type(metaMethod.typeName()),
-                    static_cast<void*>(NULL));
+                returnValue = QVariant(QMetaType::fromName(metaMethod.typeName()), nullptr);
             }
 
             QGenericReturnArgument returnArgument(

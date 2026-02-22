@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QJsonParseError>
 #include <QProcess>
 
@@ -74,7 +75,7 @@ namespace Extensions {
         if (extensionUniqueName.isEmpty())
             return QString();
 
-        if (!extensionUniqueName.contains(QRegExp(R"(^[-_0-9a-z]+(\.[-_0-9a-z]+)+$)", Qt::CaseSensitive))) {
+        if (!extensionUniqueName.contains(QRegularExpression(R"(^[-_0-9a-z]+(\.[-_0-9a-z]+)+$)"))) {
             return QString();
         }
 
@@ -100,7 +101,7 @@ namespace Extensions {
 
         QProcess *process = new QProcess(this);
 
-        connect(process, static_cast<void (QProcess::*)(QProcess::ProcessError)>(&QProcess::error), [=](){
+        connect(process, &QProcess::errorOccurred, [=](){
             setUIClean(false);
 
             QMessageBox infoBox;
