@@ -6,6 +6,9 @@
 #include "include/mainwindow.h"
 #include "include/notepadqq.h"
 #include "include/nqqsettings.h"
+#include "include/tabcontentwrapper.h"
+#include "include/Csv/csvmodel.h"
+#include "include/Csv/lazyloadcsvmodel.h"
 
 #include <QCoreApplication>
 #include <QFileInfo>
@@ -920,6 +923,45 @@ int DocEngine::saveDocument(EditorTabWidget *tabWidget, int tab, QUrl outFileNam
         outFileName = editor->filePath();
 
     if (outFileName.isLocalFile()) {
+        // CSV mode: save via CSV model, bypassing text editor
+        TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+        if (wrapper && wrapper->isCsvMode()) {
+            bool saved = false;
+            if (wrapper->csvModelPtr()) {
+                saved = wrapper->csvModelPtr()->saveToFile(
+                    outFileName.toLocalFile(),
+                    wrapper->csvModelPtr()->delimiter(),
+                    wrapper->csvModelPtr()->lineEnding());
+            } else if (wrapper->lazyModelPtr()) {
+                saved = wrapper->lazyModelPtr()->saveToFile(
+                    outFileName.toLocalFile(),
+                    wrapper->lazyModelPtr()->delimiter(),
+                    wrapper->lazyModelPtr()->lineEnding());
+            }
+            if (saved) {
+                if (!copy) {
+                    if (editor->filePath() != outFileName) {
+                        editor->setFilePath(outFileName);
+                        editor->setLanguageFromFilePath();
+                    }
+                    editor->markClean();
+                    editor->setFileOnDiskChanged(false);
+                }
+                monitorDocument(editor);
+                if (!copy) {
+                    emit documentSaved(tabWidget, tab);
+                }
+                return DocEngine::saveFileResult_Saved;
+            } else {
+                QMessageBox msgBox;
+                msgBox.setWindowTitle(QCoreApplication::applicationName());
+                msgBox.setText(tr("Error trying to write to \"%1\"").arg(outFileName.toLocalFile()));
+                msgBox.exec();
+                monitorDocument(editor);
+                return DocEngine::saveFileResult_Canceled;
+            }
+        }
+
         QFile file(outFileName.toLocalFile());
 
         do

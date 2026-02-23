@@ -97,13 +97,63 @@ void TabContentWrapper::switchToCsvMode(char delimiter)
     // which crashes if there is pending JavaScript work.
     m_editor->setWebPageLifecycleActive();
 
+    // Prevent the hidden QWebEngineView from stealing focus and consuming
+    // keyboard shortcuts (Ctrl+C/X/V) via Chromium's input handler.
+    m_editor->setFocusPolicy(Qt::NoFocus);
+    m_csvGrid->setFocus();
+
     emit modeChanged(CsvMode);
+}
+
+bool TabContentWrapper::isCsvDirty() const
+{
+    if (m_csvModel) return m_csvModel->isDirty();
+    if (m_lazyModel) return m_lazyModel->isDirty();
+    return false;
 }
 
 void TabContentWrapper::switchToTextMode()
 {
+    // Sync dirty CSV data back to the text editor before destroying models
+    if (m_csvModel && m_csvModel->isDirty()) {
+        char delim = m_csvModel->delimiter();
+        QString lineEndStr;
+        switch (m_csvModel->lineEnding()) {
+        case CsvModel::LineEnding::CRLF: lineEndStr = "\r\n"; break;
+        case CsvModel::LineEnding::CR:   lineEndStr = "\r"; break;
+        default:                         lineEndStr = "\n"; break;
+        }
+
+        QString text;
+        // Comments
+        for (const QString &comment : m_csvModel->comments()) {
+            text += comment + lineEndStr;
+        }
+        // Headers
+        if (m_csvModel->hasHeader()) {
+            for (int i = 0; i < m_csvModel->totalColumns(); i++) {
+                if (i > 0) text += delim;
+                text += m_csvModel->headerData(i, Qt::Horizontal).toString();
+            }
+            text += lineEndStr;
+        }
+        // Data rows
+        for (int r = 0; r < m_csvModel->totalRows(); r++) {
+            for (int c = 0; c < m_csvModel->totalColumns(); c++) {
+                if (c > 0) text += delim;
+                QModelIndex idx = m_csvModel->index(r, c);
+                text += idx.data(Qt::DisplayRole).toString();
+            }
+            text += lineEndStr;
+        }
+        m_editor->setValue(text);
+    }
+
     m_currentMode = TextMode;
     setCurrentIndex(0);
+
+    // Restore focus policy on the editor so it can receive input again
+    m_editor->setFocusPolicy(Qt::StrongFocus);
 
     // Clean up models to free memory
     if (m_csvGrid) {

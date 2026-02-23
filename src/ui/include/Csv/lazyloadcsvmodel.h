@@ -75,10 +75,15 @@ public:
     int cacheMisses() const { return m_cacheMisses; }
     double cacheHitRate() const;
 
+    // Dirty tracking
+    bool isDirty() const { return m_dirty; }
+    void setClean() { m_dirty = false; emit dirtyChanged(false); }
+
 signals:
     void loadingStarted();
     void loadingProgress(int percent);
     void loadingFinished(bool success);
+    void dirtyChanged(bool dirty);
 
 private:
     bool buildRowIndex();
@@ -162,6 +167,10 @@ private:
     char m_delimiter;
     char m_quoteChar;
     bool m_hasHeader;
+
+    // Dirty tracking
+    bool m_dirty = false;
+    void markDirty() { if (!m_dirty) { m_dirty = true; emit dirtyChanged(true); } }
 
     // Parser
     CsvParser *m_parser;

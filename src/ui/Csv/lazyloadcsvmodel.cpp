@@ -108,6 +108,8 @@ bool LazyLoadCsvModel::loadFromFile(const QString &path, char delimiter)
         }
     }
 
+    m_dirty = false;
+
     qDebug() << "File loaded successfully using lazy loading";
     qDebug() << "Rows:" << m_rowCount << "Columns:" << m_columnCount;
 
@@ -521,6 +523,7 @@ bool LazyLoadCsvModel::setData(const QModelIndex &index, const QVariant &value, 
                     insertedRow.cells.append(QString());
             }
             insertedRow.cells[col] = value.toString();
+            markDirty();
             emit dataChanged(index, index, {role});
             return true;
         }
@@ -558,6 +561,7 @@ bool LazyLoadCsvModel::setData(const QModelIndex &index, const QVariant &value, 
         m_rowCache[row].cells = modRow.cells;
     }
 
+    markDirty();
     emit dataChanged(index, index, {role});
     return true;
 }
@@ -579,6 +583,7 @@ bool LazyLoadCsvModel::insertRows(int row, int count, const QModelIndex &parent)
 
     m_rowCount += count;
     endInsertRows();
+    markDirty();
 
     return true;
 }
@@ -598,6 +603,7 @@ bool LazyLoadCsvModel::removeRows(int row, int count, const QModelIndex &parent)
 
     m_rowCount -= count;
     endRemoveRows();
+    markDirty();
 
     return true;
 }
@@ -679,6 +685,8 @@ bool LazyLoadCsvModel::saveToFile(const QString &path, char delimiter, LineEndin
     m_modifiedRows.clear();
     m_deletedRows.clear();
     m_insertedRows.clear();
+    m_dirty = false;
+    emit dirtyChanged(false);
 
     return true;
 }

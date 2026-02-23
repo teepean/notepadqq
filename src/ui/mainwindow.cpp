@@ -1,5 +1,8 @@
 #include "include/mainwindow.h"
 #include "include/tabcontentwrapper.h"
+#include "include/Csv/csvgrid.h"
+#include "include/Csv/csvmodel.h"
+#include "include/Csv/csvconsistencychecker.h"
 
 #include "include/EditorNS/bannerfilechanged.h"
 #include "include/EditorNS/bannerfileremoved.h"
@@ -24,6 +27,10 @@
 #include "ui_mainwindow.h"
 
 #include <QActionGroup>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include <QSpinBox>
+#include <QVBoxLayout>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QFileDialog>
@@ -131,6 +138,7 @@ MainWindow::MainWindow(const QString &workingDirectory, const QStringList &argum
     loadToolBar();
 
     setupLanguagesMenu();
+    setupCsvMenu();
 
     showExtensionsMenu(Extensions::ExtensionsLoader::extensionRuntimePresent());
 
@@ -470,6 +478,69 @@ void MainWindow::setupLanguagesMenu()
         });
         letterMenu->insertAction(0, action);
     }
+}
+
+void MainWindow::setupCsvMenu()
+{
+    // Add CSV Grid Theme submenu to View menu
+    QMenu *themeMenu = new QMenu(tr("CSV Grid Theme"), this);
+    QList<CsvGridTheme> themes = CsvGrid::availableThemes();
+    QActionGroup *themeGroup = new QActionGroup(this);
+    themeGroup->setExclusive(true);
+
+    for (int i = 0; i < themes.size(); ++i) {
+        QAction *action = themeMenu->addAction(themes[i].name);
+        action->setCheckable(true);
+        if (i == 0) action->setChecked(true);
+        themeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, i]() {
+            EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+            int tab = tabWidget->currentIndex();
+            TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+            if (wrapper && wrapper->isCsvMode() && wrapper->csvGrid()) {
+                wrapper->csvGrid()->setTheme(static_cast<CsvGrid::ThemeId>(i));
+            }
+        });
+    }
+
+    // Add to View menu (after CSV Mode action)
+    ui->menu_View->addSeparator();
+    ui->menu_View->addMenu(themeMenu);
+
+    // Add "First Row as Header" toggle to View menu
+    QAction *headerToggle = new QAction(tr("First Row as Header"), this);
+    headerToggle->setCheckable(true);
+    headerToggle->setChecked(true);
+    headerToggle->setObjectName("actionFirstRowAsHeader");
+    connect(headerToggle, &QAction::toggled, this, [this](bool checked) {
+        EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+        int tab = tabWidget->currentIndex();
+        TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+        if (wrapper && wrapper->isCsvMode() && wrapper->csvModelPtr()) {
+            wrapper->csvModelPtr()->toggleFirstRowAsHeader(checked);
+            if (wrapper->csvGrid())
+                wrapper->csvGrid()->autoResizeColumns();
+        }
+    });
+    ui->menu_View->addAction(headerToggle);
+
+    // Add "Check Data Consistency" to Edit menu
+    QAction *consistencyAction = new QAction(tr("Check Data Consistency..."), this);
+    connect(consistencyAction, &QAction::triggered, this, [this]() {
+        EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+        int tab = tabWidget->currentIndex();
+        TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+        if (wrapper && wrapper->isCsvMode() && wrapper->csvModelPtr()) {
+            CsvConsistencyChecker *checker = new CsvConsistencyChecker(wrapper->csvModelPtr(), this);
+            checker->setAttribute(Qt::WA_DeleteOnClose);
+            checker->show();
+        } else {
+            QMessageBox::information(this, tr("Data Consistency"),
+                                     tr("This feature is only available in CSV mode."));
+        }
+    });
+    ui->menu_Edit->addSeparator();
+    ui->menu_Edit->addAction(consistencyAction);
 }
 
 void MainWindow::fixKeyboardShortcuts()
@@ -896,8 +967,14 @@ void MainWindow::on_actionCSV_Mode_toggled(bool on)
 
     if (on) {
         wrapper->switchToCsvMode('\0'); // Auto-detect delimiter
+        // Set focus on the CSV grid so keyboard shortcuts work immediately
+        if (wrapper->csvGrid()) {
+            wrapper->csvGrid()->setFocus();
+        }
     } else {
         wrapper->switchToTextMode();
+        auto ed = tabWidget->currentEditor();
+        if (ed) ed->setFocus();
     }
 
     // Update statusbar
@@ -1022,10 +1099,15 @@ int MainWindow::closeTab(EditorTabWidget *tabWidget, int tab, bool remove, bool 
     int result = MainWindow::tabCloseResult_AlreadySaved;
     auto editor = tabWidget->editor(tab);
 
+    TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+    bool csvMode = wrapper && wrapper->isCsvMode();
+    bool csvClean = !(csvMode && wrapper->isCsvDirty());
+    bool textClean = csvMode ? true : editor->isClean();
+    bool emptyNewTab = editor->filePath().isEmpty() && !csvMode && editor->value().isEmpty();
+
     // If the tab is the only existing one, is not associated with a file, and has no contents,
     // we'll not close it.
-    if ( m_topEditorContainer->count()==1 && tabWidget->count()==1 &&
-         editor->filePath().isEmpty() && editor->value().isEmpty()) {
+    if ( m_topEditorContainer->count()==1 && tabWidget->count()==1 && emptyNewTab) {
 
         // If user tried to close last open (clean) tab, check if Nqq should just quit.
         if(m_settings.General.getExitOnLastTabClose())
@@ -1034,7 +1116,7 @@ int MainWindow::closeTab(EditorTabWidget *tabWidget, int tab, bool remove, bool 
         goto cleanup;
     }
 
-    if (force || editor->isClean() || (editor->filePath().isEmpty() && editor->value().isEmpty())) {
+    if (force || (textClean && csvClean) || emptyNewTab) {
         if (remove) m_docEngine->closeDocument(tabWidget, tab);
         goto cleanup;
     }
@@ -1231,6 +1313,13 @@ void MainWindow::on_actionSave_a_Copy_As_triggered()
 
 void MainWindow::on_actionCopy_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tabWidget->currentIndex());
+    if (wrapper && wrapper->isCsvMode()) {
+        wrapper->csvGrid()->copyCells();
+        return;
+    }
+
     currentEditor()->selectedTexts().then([](QStringList sel){
         QApplication::clipboard()->setText(sel.join("\n"));
     });
@@ -1238,6 +1327,13 @@ void MainWindow::on_actionCopy_triggered()
 
 void MainWindow::on_actionPaste_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tabWidget->currentIndex());
+    if (wrapper && wrapper->isCsvMode()) {
+        wrapper->csvGrid()->pasteCells();
+        return;
+    }
+
     // Normalize foreign text format
     QString text = QApplication::clipboard()->text()
                    .replace(QRegularExpression("\n|\r\n|\r"), "\n");
@@ -1247,6 +1343,13 @@ void MainWindow::on_actionPaste_triggered()
 
 void MainWindow::on_actionCut_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tabWidget->currentIndex());
+    if (wrapper && wrapper->isCsvMode()) {
+        wrapper->csvGrid()->cutCells();
+        return;
+    }
+
     ui->actionCopy->trigger();
     currentEditor()->setSelectionsText(QStringList(""));
 }
@@ -1270,7 +1373,6 @@ void MainWindow::on_currentEditorChanged(EditorTabWidget *tabWidget, int tab)
         auto editor = tabWidget->editor(tab);
         refreshEditorUiInfo(editor);
         editor->requestDocumentInfo();
-        editor->setFocus();
 
         // Sync CSV Mode checkbox with current tab's state
         TabContentWrapper *wrapper = tabWidget->wrapper(tab);
@@ -1278,6 +1380,24 @@ void MainWindow::on_currentEditorChanged(EditorTabWidget *tabWidget, int tab)
             ui->actionCSV_Mode->blockSignals(true);
             ui->actionCSV_Mode->setChecked(wrapper->isCsvMode());
             ui->actionCSV_Mode->blockSignals(false);
+
+            // Sync "First Row as Header" toggle
+            QAction *headerToggle = findChild<QAction*>("actionFirstRowAsHeader");
+            if (headerToggle) {
+                headerToggle->blockSignals(true);
+                bool hasHeader = wrapper->csvModelPtr() ? wrapper->csvModelPtr()->hasHeader() : true;
+                headerToggle->setChecked(hasHeader);
+                headerToggle->blockSignals(false);
+            }
+
+            // Set focus on the appropriate widget
+            if (wrapper->isCsvMode() && wrapper->csvGrid()) {
+                wrapper->csvGrid()->setFocus();
+            } else {
+                editor->setFocus();
+            }
+        } else {
+            editor->setFocus();
         }
     }
 }
@@ -1462,6 +1582,9 @@ void MainWindow::refreshEditorUiInfo(QSharedPointer<Editor> editor)
         QString cleanIndicator;
         if (!csvMode) {
             cleanIndicator = editor->isClean() ? "" : "*";
+        } else {
+            TabContentWrapper *titleWrapper = tabWidget->wrapper(tabWidget->indexOf(editor.data()));
+            cleanIndicator = (titleWrapper && titleWrapper->isCsvDirty()) ? "*" : "";
         }
 
         newTitle = QString("%1%2 (%3) - %4")
@@ -1526,6 +1649,13 @@ void MainWindow::on_actionDelete_triggered()
 
 void MainWindow::on_actionSelect_All_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tabWidget->currentIndex());
+    if (wrapper && wrapper->isCsvMode()) {
+        wrapper->csvGrid()->selectAll();
+        return;
+    }
+
     currentEditor()->sendMessage("C_CMD_SELECT_ALL");
 }
 
@@ -1545,11 +1675,25 @@ void MainWindow::on_actionAbout_Qt_triggered()
 
 void MainWindow::on_actionUndo_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    int tab = tabWidget->currentIndex();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+    if (wrapper && wrapper->isCsvMode() && wrapper->csvModelPtr()) {
+        wrapper->csvModelPtr()->undoStack()->undo();
+        return;
+    }
     currentEditor()->sendMessage("C_CMD_UNDO");
 }
 
 void MainWindow::on_actionRedo_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    int tab = tabWidget->currentIndex();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+    if (wrapper && wrapper->isCsvMode() && wrapper->csvModelPtr()) {
+        wrapper->csvModelPtr()->undoStack()->redo();
+        return;
+    }
     currentEditor()->sendMessage("C_CMD_REDO");
 }
 
@@ -1889,7 +2033,9 @@ void MainWindow::on_actionSave_All_triggered()
 {
     // No tab must get closed (or added) while we're iterating!!
     m_topEditorContainer->forEachEditor([&](const int /*tabWidgetId*/, const int editorId, EditorTabWidget *tabWidget, QSharedPointer<Editor> editor) {
-        if (editor->isClean()) {
+        TabContentWrapper *w = tabWidget->wrapper(editorId);
+        bool csvDirty = w && w->isCsvMode() && w->isCsvDirty();
+        if (editor->isClean() && !csvDirty) {
             return true;
         } else {
             tabWidget->setCurrentIndex(editorId);
@@ -2621,6 +2767,57 @@ void MainWindow::on_actionSpace_to_TAB_Leading_triggered()
 
 void MainWindow::on_actionGo_to_Line_triggered()
 {
+    EditorTabWidget *tabWidget = m_topEditorContainer->currentTabWidget();
+    int tab = tabWidget->currentIndex();
+    TabContentWrapper *wrapper = tabWidget->wrapper(tab);
+
+    if (wrapper && wrapper->isCsvMode() && wrapper->csvGrid()) {
+        // CSV mode: show row + column dialog
+        CsvGrid *grid = wrapper->csvGrid();
+        QAbstractTableModel *model = grid->csvModel();
+        if (!model) return;
+
+        int maxRow = model->rowCount();
+        int maxCol = model->columnCount();
+        if (maxRow == 0 || maxCol == 0) return;
+
+        QModelIndex current = grid->currentIndex();
+        int curRow = current.isValid() ? current.row() + 1 : 1;
+        int curCol = current.isValid() ? current.column() + 1 : 1;
+
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("Go to Cell"));
+        QVBoxLayout *layout = new QVBoxLayout(&dlg);
+
+        QHBoxLayout *rowLayout = new QHBoxLayout();
+        rowLayout->addWidget(new QLabel(tr("Row:")));
+        QSpinBox *rowSpin = new QSpinBox();
+        rowSpin->setRange(1, maxRow);
+        rowSpin->setValue(curRow);
+        rowLayout->addWidget(rowSpin);
+        layout->addLayout(rowLayout);
+
+        QHBoxLayout *colLayout = new QHBoxLayout();
+        colLayout->addWidget(new QLabel(tr("Column:")));
+        QSpinBox *colSpin = new QSpinBox();
+        colSpin->setRange(1, maxCol);
+        colSpin->setValue(curCol);
+        colLayout->addWidget(colSpin);
+        layout->addLayout(colLayout);
+
+        QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        layout->addWidget(buttons);
+
+        if (dlg.exec() == QDialog::Accepted) {
+            QModelIndex idx = model->index(rowSpin->value() - 1, colSpin->value() - 1);
+            grid->scrollTo(idx);
+            grid->setCurrentIndex(idx);
+        }
+        return;
+    }
+
     auto editor = currentEditor();
     int currentLine = editor->cursorPosition().first;
     editor->lineCount().then([=](int lines){

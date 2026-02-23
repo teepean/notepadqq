@@ -271,6 +271,7 @@ private:
     int                 saveAs(EditorTabWidget *tabWidget, int tab, bool copy);
     QUrl                getSaveDialogDefaultFileName(EditorTabWidget *tabWidget, int tab);
     void                setupLanguagesMenu();
+    void                setupCsvMenu();
     void                transformSelectedText(std::function<QString (const QString &)> func);
     void                restoreWindowSettings();
     void                loadIcons();

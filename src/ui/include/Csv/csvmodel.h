@@ -6,6 +6,8 @@
 #include <QStringList>
 #include <QFile>
 #include <QMap>
+#include <QSet>
+#include <QUndoStack>
 
 class CsvParser;
 
@@ -45,6 +47,7 @@ public:
 
     void setHasHeader(bool hasHeader);
     bool hasHeader() const { return m_hasHeader; }
+    void toggleFirstRowAsHeader(bool useFirstRowAsHeader);
 
     // Row operations
     bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
@@ -88,11 +91,49 @@ public:
     QString lineEndingString() const;
     QString encoding() const { return m_encoding; }
 
+    // Dirty tracking
+    bool isDirty() const { return m_dirty; }
+    void setClean() { m_dirty = false; emit dirtyChanged(false); }
+
+    // Undo/Redo
+    QUndoStack *undoStack() { return &m_undoStack; }
+
+    // Internal methods used by undo commands (bypass undo stack)
+    void setDataInternal(int row, int col, const QString &value);
+    bool insertRowsInternal(int row, int count);
+    bool removeRowsInternal(int row, int count);
+    bool insertColumnsInternal(int column, int count);
+    bool removeColumnsInternal(int column, int count);
+    void setHeaderDataInternal(int section, const QString &value);
+    void sortByColumnInternal(int column, Qt::SortOrder order);
+    void restoreDataInternal(const QVector<QStringList> &data);
+
+    // Access internal data for undo snapshots
+    QVector<QStringList> dataSnapshot() const { return m_data; }
+    QStringList rowData(int row) const;
+    QStringList columnData(int column) const;
+    QStringList headerSnapshot() const { return m_headers; }
+
+    // Row flagging
+    void toggleRowFlag(int row);
+    void flagRows(const QList<int> &rows);
+    void unflagAll();
+    void invertFlags();
+    bool isFlagged(int row) const { return m_flaggedRows.contains(row); }
+    QSet<int> flaggedRows() const { return m_flaggedRows; }
+    int flaggedRowCount() const { return m_flaggedRows.size(); }
+    void deleteFlaggedRows();
+    void keepOnlyFlaggedRows();
+
 signals:
     void loadingStarted();
     void loadingFinished(bool success);
+    void dirtyChanged(bool dirty);
 
 private:
+    void markDirty() { if (!m_dirty) { m_dirty = true; emit dirtyChanged(true); } }
+
+    bool m_dirty = false;
     QString escapeCsvField(const QString &field, char delimiter) const;
     bool rowMatchesFilter(int row) const;
     LineEnding detectLineEnding(const QByteArray &data) const;
@@ -124,6 +165,13 @@ private:
     // Cache
     int m_columnCount;
     QList<int> m_hiddenColumns;
+
+    // Undo
+    QUndoStack m_undoStack;
+    bool m_undoInProgress = false;
+
+    // Row flagging
+    QSet<int> m_flaggedRows;
 
     // Parser
     CsvParser *m_parser;

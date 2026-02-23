@@ -71,6 +71,8 @@ SOURCES += main.cpp\
     Csv/csvmodel.cpp \
     Csv/lazyloadcsvmodel.cpp \
     Csv/csvgrid.cpp \
+    Csv/csvundocommands.cpp \
+    Csv/csvconsistencychecker.cpp \
     docengine.cpp \
     frmabout.cpp \
     notepadqq.cpp \
@@ -124,6 +126,8 @@ HEADERS  += include/mainwindow.h \
     include/Csv/csvmodel.h \
     include/Csv/lazyloadcsvmodel.h \
     include/Csv/csvgrid.h \
+    include/Csv/csvundocommands.h \
+    include/Csv/csvconsistencychecker.h \
     include/docengine.h \
     include/frmabout.h \
     include/notepadqq.h \

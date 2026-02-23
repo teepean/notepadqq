@@ -1,5 +1,6 @@
 #include "include/Csv/csvmodel.h"
 #include "include/Csv/csvparser.h"
+#include "include/Csv/csvundocommands.h"
 #include <QFile>
 #include <QStringConverter>
 #include <QTextStream>
@@ -75,6 +76,10 @@ QVariant CsvModel::data(const QModelIndex &index, int role) const
         break;
 
     case Qt::BackgroundRole:
+        // Flagged rows get yellow background
+        if (m_flaggedRows.contains(row)) {
+            return QColor(255, 255, 200);
+        }
         // Alternating row colors
         if (row % 2 == 0) {
             return QColor(255, 255, 255);
@@ -105,9 +110,12 @@ QVariant CsvModel::headerData(int section, Qt::Orientation orientation, int role
     if (role == Qt::DisplayRole) {
         if (orientation == Qt::Horizontal) {
             if (m_hasHeader && section < m_headers.size()) {
-                return m_headers[section];
+                // Show header text; if empty, show column index as fallback
+                const QString &h = m_headers[section];
+                return h.isEmpty() ? QString::number(section + 1) : h;
             }
-            return QString("Column %1").arg(section + 1);
+            // No header row — just show column numbers
+            return QString::number(section + 1);
         } else {
             return section + 1;
         }
@@ -119,7 +127,7 @@ QVariant CsvModel::headerData(int section, Qt::Orientation orientation, int role
 
     if (role == Qt::FontRole && orientation == Qt::Horizontal) {
         QFont font;
-        font.setBold(true);
+        font.setBold(m_hasHeader);
         return font;
     }
 
@@ -145,14 +153,43 @@ bool CsvModel::setData(const QModelIndex &index, const QVariant &value, int role
     if (row < 0 || row >= m_data.size() || col < 0 || col >= m_columnCount)
         return false;
 
+    if (m_undoInProgress) {
+        // Called from undo/redo command — just do the work
+        if (col >= m_data[row].size()) {
+            while (m_data[row].size() < m_columnCount)
+                m_data[row].append(QString());
+        }
+        m_data[row][col] = value.toString();
+        markDirty();
+        emit dataChanged(index, index, {role});
+        return true;
+    }
+
+    // Capture old value and push undo command
+    QString oldValue;
+    if (col < m_data[row].size()) {
+        oldValue = m_data[row][col];
+    }
+    QString newValue = value.toString();
+    if (oldValue == newValue)
+        return true; // no change
+
+    m_undoStack.push(new CsvEditCellCommand(this, row, col, oldValue, newValue));
+    return true;
+}
+
+void CsvModel::setDataInternal(int row, int col, const QString &value)
+{
+    if (row < 0 || row >= m_data.size() || col < 0 || col >= m_columnCount)
+        return;
+
     if (col >= m_data[row].size()) {
         while (m_data[row].size() < m_columnCount)
             m_data[row].append(QString());
     }
-    m_data[row][col] = value.toString();
-
-    emit dataChanged(index, index, {role});
-    return true;
+    m_data[row][col] = value;
+    markDirty();
+    emit dataChanged(index(row, col), index(row, col), {Qt::EditRole});
 }
 
 bool CsvModel::loadFromFile(const QString &path, char delimiter)
@@ -279,6 +316,8 @@ bool CsvModel::loadFromFile(const QString &path, char delimiter)
     qDebug() << "Loaded" << m_data.size() << "rows," << m_columnCount << "columns";
     qDebug() << "Preserved" << m_comments.size() << "comment lines";
 
+    m_dirty = false;
+
     emit loadingFinished(true);
     return true;
 }
@@ -349,6 +388,8 @@ bool CsvModel::loadFromString(const QString &content, char delimiter)
     }
 
     endResetModel();
+
+    m_dirty = false;
 
     qDebug() << "Parsed" << m_data.size() << "rows," << m_columnCount << "columns from string";
     return true;
@@ -421,6 +462,8 @@ bool CsvModel::saveToFile(const QString &path, char delimiter, LineEnding lineEn
     }
 
     m_lineEnding = lineEnding;
+    m_dirty = false;
+    emit dirtyChanged(false);
 
     qDebug() << "Saved" << m_data.size() << "rows to" << path;
     return true;
@@ -474,13 +517,54 @@ void CsvModel::setHasHeader(bool hasHeader)
     m_hasHeader = hasHeader;
 }
 
+void CsvModel::toggleFirstRowAsHeader(bool useFirstRowAsHeader)
+{
+    if (useFirstRowAsHeader == m_hasHeader)
+        return;
+
+    beginResetModel();
+
+    if (useFirstRowAsHeader && !m_data.isEmpty()) {
+        // Promote first data row to headers
+        m_headers = m_data.first();
+        m_data.removeFirst();
+        m_hasHeader = true;
+        // Ensure headers cover all columns
+        while (m_headers.size() < m_columnCount)
+            m_headers.append(QString());
+    } else if (!useFirstRowAsHeader) {
+        // Demote headers to first data row
+        if (!m_headers.isEmpty()) {
+            m_data.prepend(m_headers);
+        }
+        m_headers.clear();
+        m_hasHeader = false;
+    }
+
+    endResetModel();
+    markDirty();
+}
+
 bool CsvModel::insertRows(int row, int count, const QModelIndex &parent)
+{
+    Q_UNUSED(parent);
+    if (count < 1 || row < 0 || row > m_data.size())
+        return false;
+
+    if (m_undoInProgress) {
+        return insertRowsInternal(row, count);
+    }
+
+    m_undoStack.push(new CsvInsertRowsCommand(this, row, count));
+    return true;
+}
+
+bool CsvModel::insertRowsInternal(int row, int count)
 {
     if (count < 1 || row < 0 || row > m_data.size())
         return false;
 
-    beginInsertRows(parent, row, row + count - 1);
-
+    beginInsertRows(QModelIndex(), row, row + count - 1);
     for (int i = 0; i < count; i++) {
         QStringList emptyRow;
         emptyRow.reserve(m_columnCount);
@@ -489,29 +573,62 @@ bool CsvModel::insertRows(int row, int count, const QModelIndex &parent)
         }
         m_data.insert(row + i, emptyRow);
     }
-
     endInsertRows();
+    markDirty();
     return true;
 }
 
 bool CsvModel::removeRows(int row, int count, const QModelIndex &parent)
 {
+    Q_UNUSED(parent);
     if (count < 1 || row < 0 || row + count > m_data.size())
         return false;
 
-    beginRemoveRows(parent, row, row + count - 1);
+    if (m_undoInProgress) {
+        return removeRowsInternal(row, count);
+    }
+
+    // Capture data before removal for undo
+    QVector<QStringList> removedData;
+    for (int i = row; i < row + count; ++i) {
+        removedData.append(m_data[i]);
+    }
+    m_undoStack.push(new CsvRemoveRowsCommand(this, row, count, removedData));
+    return true;
+}
+
+bool CsvModel::removeRowsInternal(int row, int count)
+{
+    if (count < 1 || row < 0 || row + count > m_data.size())
+        return false;
+
+    beginRemoveRows(QModelIndex(), row, row + count - 1);
     m_data.remove(row, count);
     endRemoveRows();
-
+    markDirty();
     return true;
 }
 
 bool CsvModel::insertColumns(int column, int count, const QModelIndex &parent)
 {
+    Q_UNUSED(parent);
     if (count < 1 || column < 0 || column > m_columnCount)
         return false;
 
-    beginInsertColumns(parent, column, column + count - 1);
+    if (m_undoInProgress) {
+        return insertColumnsInternal(column, count);
+    }
+
+    m_undoStack.push(new CsvInsertColumnsCommand(this, column, count));
+    return true;
+}
+
+bool CsvModel::insertColumnsInternal(int column, int count)
+{
+    if (count < 1 || column < 0 || column > m_columnCount)
+        return false;
+
+    beginInsertColumns(QModelIndex(), column, column + count - 1);
 
     for (QStringList &row : m_data) {
         while (row.size() < column)
@@ -524,21 +641,52 @@ bool CsvModel::insertColumns(int column, int count, const QModelIndex &parent)
     while (m_headers.size() < column)
         m_headers.append(QString("Column %1").arg(m_headers.size() + 1));
     for (int i = 0; i < count; i++) {
-        m_headers.insert(column + i, QString("New Column %1").arg(column + i + 1));
+        m_headers.insert(column + i, QString());
     }
 
     m_columnCount += count;
 
     endInsertColumns();
+    markDirty();
     return true;
 }
 
 bool CsvModel::removeColumns(int column, int count, const QModelIndex &parent)
 {
+    Q_UNUSED(parent);
     if (count < 1 || column < 0 || column + count > m_columnCount)
         return false;
 
-    beginRemoveColumns(parent, column, column + count - 1);
+    if (m_undoInProgress) {
+        return removeColumnsInternal(column, count);
+    }
+
+    // Capture data for undo
+    QVector<QStringList> removedData;
+    for (const QStringList &row : m_data) {
+        QStringList colVals;
+        for (int i = 0; i < count; ++i) {
+            int c = column + i;
+            colVals.append(c < row.size() ? row[c] : QString());
+        }
+        removedData.append(colVals);
+    }
+    QStringList removedHeaders;
+    for (int i = 0; i < count; ++i) {
+        int c = column + i;
+        removedHeaders.append(c < m_headers.size() ? m_headers[c] : QString());
+    }
+
+    m_undoStack.push(new CsvRemoveColumnsCommand(this, column, count, removedData, removedHeaders));
+    return true;
+}
+
+bool CsvModel::removeColumnsInternal(int column, int count)
+{
+    if (count < 1 || column < 0 || column + count > m_columnCount)
+        return false;
+
+    beginRemoveColumns(QModelIndex(), column, column + count - 1);
 
     for (QStringList &row : m_data) {
         for (int i = 0; i < count; i++) {
@@ -557,10 +705,25 @@ bool CsvModel::removeColumns(int column, int count, const QModelIndex &parent)
     m_columnCount -= count;
 
     endRemoveColumns();
+    markDirty();
     return true;
 }
 
 void CsvModel::sortByColumn(int column, Qt::SortOrder order)
+{
+    if (column < 0 || column >= m_columnCount)
+        return;
+
+    if (m_undoInProgress) {
+        sortByColumnInternal(column, order);
+        return;
+    }
+
+    QVector<QStringList> preSortData = m_data;
+    m_undoStack.push(new CsvSortCommand(this, preSortData, column, order));
+}
+
+void CsvModel::sortByColumnInternal(int column, Qt::SortOrder order)
 {
     if (column < 0 || column >= m_columnCount)
         return;
@@ -585,6 +748,39 @@ void CsvModel::sortByColumn(int column, Qt::SortOrder order)
         });
 
     emit layoutChanged();
+    markDirty();
+}
+
+void CsvModel::restoreDataInternal(const QVector<QStringList> &data)
+{
+    beginResetModel();
+    m_data = data;
+    endResetModel();
+    markDirty();
+}
+
+void CsvModel::setHeaderDataInternal(int section, const QString &value)
+{
+    if (section >= 0 && section < m_headers.size()) {
+        m_headers[section] = value;
+        emit headerDataChanged(Qt::Horizontal, section, section);
+    }
+}
+
+QStringList CsvModel::rowData(int row) const
+{
+    if (row >= 0 && row < m_data.size())
+        return m_data[row];
+    return QStringList();
+}
+
+QStringList CsvModel::columnData(int column) const
+{
+    QStringList result;
+    for (const QStringList &row : m_data) {
+        result.append(column < row.size() ? row[column] : QString());
+    }
+    return result;
 }
 
 void CsvModel::removeDuplicateRows()
@@ -606,6 +802,7 @@ void CsvModel::removeDuplicateRows()
         beginResetModel();
         m_data = uniqueData;
         endResetModel();
+        markDirty();
     }
 }
 
@@ -640,6 +837,7 @@ void CsvModel::removeDuplicateRows(const QList<int> &columns)
         beginResetModel();
         m_data = uniqueData;
         endResetModel();
+        markDirty();
     }
 }
 
@@ -705,6 +903,7 @@ int CsvModel::replaceInColumn(const QString &pattern, const QString &replacement
         }
     }
 
+    if (count > 0) markDirty();
     return count;
 }
 
@@ -876,6 +1075,7 @@ void CsvModel::reorderColumns(const QList<int> &newOrder)
     }
 
     endResetModel();
+    markDirty();
 }
 
 void CsvModel::duplicateColumn(int column, const QString &newName)
@@ -899,6 +1099,7 @@ void CsvModel::duplicateColumn(int column, const QString &newName)
     m_columnCount++;
 
     endInsertColumns();
+    markDirty();
 }
 
 void CsvModel::combineColumns(const QList<int> &columns, const QString &delimiter, const QString &newName)
@@ -923,6 +1124,7 @@ void CsvModel::combineColumns(const QList<int> &columns, const QString &delimite
     m_columnCount++;
 
     endInsertColumns();
+    markDirty();
 }
 
 void CsvModel::splitColumn(int column, const QString &delimiter)
@@ -970,6 +1172,7 @@ void CsvModel::splitColumn(int column, const QString &delimiter)
     m_columnCount += numNewColumns;
 
     endInsertColumns();
+    markDirty();
 }
 
 void CsvModel::hideColumn(int column)
@@ -985,4 +1188,83 @@ void CsvModel::hideColumn(int column)
 void CsvModel::showColumn(int column)
 {
     m_hiddenColumns.removeAll(column);
+}
+
+// --- Row Flagging ---
+
+void CsvModel::toggleRowFlag(int row)
+{
+    if (row < 0 || row >= m_data.size())
+        return;
+
+    if (m_flaggedRows.contains(row)) {
+        m_flaggedRows.remove(row);
+    } else {
+        m_flaggedRows.insert(row);
+    }
+    emit dataChanged(index(row, 0), index(row, m_columnCount - 1), {Qt::BackgroundRole});
+}
+
+void CsvModel::flagRows(const QList<int> &rows)
+{
+    for (int row : rows) {
+        if (row >= 0 && row < m_data.size()) {
+            m_flaggedRows.insert(row);
+        }
+    }
+    beginResetModel();
+    endResetModel();
+}
+
+void CsvModel::unflagAll()
+{
+    m_flaggedRows.clear();
+    beginResetModel();
+    endResetModel();
+}
+
+void CsvModel::invertFlags()
+{
+    QSet<int> newFlags;
+    for (int i = 0; i < m_data.size(); ++i) {
+        if (!m_flaggedRows.contains(i)) {
+            newFlags.insert(i);
+        }
+    }
+    m_flaggedRows = newFlags;
+    beginResetModel();
+    endResetModel();
+}
+
+void CsvModel::deleteFlaggedRows()
+{
+    if (m_flaggedRows.isEmpty())
+        return;
+
+    QList<int> sorted(m_flaggedRows.begin(), m_flaggedRows.end());
+    std::sort(sorted.begin(), sorted.end(), std::greater<int>());
+
+    for (int row : sorted) {
+        removeRows(row, 1);
+    }
+    m_flaggedRows.clear();
+}
+
+void CsvModel::keepOnlyFlaggedRows()
+{
+    if (m_flaggedRows.isEmpty())
+        return;
+
+    QList<int> toRemove;
+    for (int i = 0; i < m_data.size(); ++i) {
+        if (!m_flaggedRows.contains(i)) {
+            toRemove.append(i);
+        }
+    }
+
+    std::sort(toRemove.begin(), toRemove.end(), std::greater<int>());
+    for (int row : toRemove) {
+        removeRows(row, 1);
+    }
+    m_flaggedRows.clear();
 }

@@ -32,6 +32,9 @@ public:
 
     EditorNS::Editor *editor() const { return m_editor; }
     CsvGrid *csvGrid() const { return m_csvGrid; }
+    CsvModel *csvModelPtr() const { return m_csvModel; }
+    LazyLoadCsvModel *lazyModelPtr() const { return m_lazyModel; }
+    bool isCsvDirty() const;
 
     Mode currentMode() const { return m_currentMode; }
     bool isCsvMode() const { return m_currentMode == CsvMode; }
